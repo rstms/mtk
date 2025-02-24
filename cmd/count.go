@@ -28,15 +28,16 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 
-	"github.com/emersion/go-imap"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
-var countCmd = &cobra.Command{
-	Use:   "ls",
-	Short: "list inbox folders",
-	Long: `list inbox folders"
+var lsCmd = &cobra.Command{
+	Use:   "count",
+	Short: "count inbox messages",
+	Long: `count inbox messages"
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		c, err := imapLogin()
@@ -45,23 +46,37 @@ var countCmd = &cobra.Command{
 		defer imapLogout(c)
 
 		// List mailboxes
-		mailboxes := make(chan *imap.MailboxInfo, 10)
+		/*
+			mailboxes := make(chan *imap.MailboxInfo, 10)
 
-		done := make(chan error, 1)
-		go func() {
-			done <- c.List("", "*", mailboxes)
-		}()
+			done := make(chan error, 1)
+			go func() {
+				done <- c.List("", "*", mailboxes)
+			}()
 
-		for m := range mailboxes {
-			fmt.Println(m.Name)
-		}
+			log.Println("Mailboxes:")
+			for m := range mailboxes {
+				log.Println("* " + m.Name)
+			}
 
-		if err := <-done; err != nil {
+			if err := <-done; err != nil {
+				cobra.CheckErr(err)
+			}
+		*/
+
+		// Select INBOX
+		mbox, err := c.Select("INBOX", false)
+		if err != nil {
 			cobra.CheckErr(err)
 		}
+		if viper.GetBool("verbose") {
+			log.Println("Flags for INBOX:", mbox.Flags)
+		}
+
+		fmt.Printf("%d\n", mbox.Messages)
 	},
 }
 
 func init() {
-	imapCmd.AddCommand(countCmd)
+	imapCmd.AddCommand(lsCmd)
 }

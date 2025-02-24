@@ -28,8 +28,8 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
+	"log"
 
 	"os"
 
@@ -44,20 +44,11 @@ var cfgFile string
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "mtk",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	Short: "mail toolkit",
+	Long: `mail utilitiy commands
+`,
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -68,24 +59,24 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.mtk.yaml)")
+
 	rootCmd.PersistentFlags().StringP("imap-hostname", "i", "", "imap hostname")
 	viper.BindPFlag("imap_hostname", rootCmd.PersistentFlags().Lookup("imap-hostname"))
+
+	rootCmd.PersistentFlags().IntP("imap-port", "P", 993, "imap port")
+	viper.BindPFlag("imap_port", rootCmd.PersistentFlags().Lookup("imap-port"))
+
 	rootCmd.PersistentFlags().StringP("username", "u", "", "username")
 	viper.BindPFlag("username", rootCmd.PersistentFlags().Lookup("username"))
+
 	rootCmd.PersistentFlags().StringP("password", "p", "", "password")
 	viper.BindPFlag("password", rootCmd.PersistentFlags().Lookup("password"))
 
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose diagnostics")
+	viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 }
 
-// initConfig reads in config file and ENV variables if set.
 func initConfig() {
 	if cfgFile != "" {
 		// Use config file from the flag.
@@ -105,77 +96,42 @@ func initConfig() {
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
-		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+		if viper.GetBool("verbose") {
+			log.Println("Using config file:", viper.ConfigFileUsed())
+		}
 	}
 }
 
-func imapClient() {
+func imapLogin() (*client.Client, error) {
 
-	log.Println("Connecting to server...")
+	if viper.GetBool("verbose") {
+		log.Println("Connecting to server...")
+	}
 
 	// Connect to server
-	c, err := client.DialTLS("mail.example.org:993", nil)
+	connectString := fmt.Sprintf("%s:%d", viper.GetString("imap_hostname"), viper.GetInt("imap_port"))
+	c, err := client.DialTLS(connectString, nil)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
-	log.Println("Connected")
 
-	// Don't forget to logout
-	defer c.Logout()
+	if viper.GetBool("verbose") {
+		log.Println("Connected")
+	}
 
 	// Login
-	if err := c.Login("username", "password"); err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Logged in")
-
-	// List mailboxes
-	mailboxes := make(chan *imap.MailboxInfo, 10)
-	done := make(chan error, 1)
-	go func() {
-		done <- c.List("", "*", mailboxes)
-	}()
-
-	log.Println("Mailboxes:")
-	for m := range mailboxes {
-		log.Println("* " + m.Name)
+	if err := c.Login(viper.GetString("username"), viper.GetString("password")); err != nil {
+		return nil, err
 	}
 
-	if err := <-done; err != nil {
-		log.Fatal(err)
+	if viper.GetBool("verbose") {
+		log.Println("Logged in")
 	}
 
-	// Select INBOX
-	mbox, err := c.Select("INBOX", false)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Flags for INBOX:", mbox.Flags)
+	return c, nil
+}
 
-	// Get the last 4 messages
-	from := uint32(1)
-	to := mbox.Messages
-	if mbox.Messages > 3 {
-		// We're using unsigned integers here, only subtract if the result is > 0
-		from = mbox.Messages - 3
-	}
-	seqset := new(imap.SeqSet)
-	seqset.AddRange(from, to)
-
-	messages := make(chan *imap.Message, 10)
-	done = make(chan error, 1)
-	go func() {
-		done <- c.Fetch(seqset, []imap.FetchItem{imap.FetchEnvelope}, messages)
-	}()
-
-	log.Println("Last 4 messages:")
-	for msg := range messages {
-		log.Println("* " + msg.Envelope.Subject)
-	}
-
-	if err := <-done; err != nil {
-		log.Fatal(err)
-	}
-
-	log.Println("Done!")
+func imapLogout(c *client.Client) {
+	// Don't forget to logout
+	defer c.Logout()
 }
